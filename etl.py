@@ -1,9 +1,12 @@
-import configparser
-from datetime import datetime
-import os
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import udf, col
-from pyspark.sql.functions import year, month, dayofmonth, hour, weekofyear, date_format
+import os                                               # Used for Operating System related operations
+import configparser                                     # Parsing config file containing AWS credentials and other info
+from sys import exit                                    # Used to exit safely from application in case of error
+from logging import error                               # Log error/info messages to help debug or check informational messages
+from pyspark.sql import SparkSession                    # Main entry point for DataFrame and SQL functionality
+import pyspark.sql.types as Spark_DT                    # Used to define Schema struct
+from datetime import datetime, timedelta                # Used for Date & Time related operations          
+# PySpark functions used in below script
+from pyspark.sql.functions import udf, col, year, month, dayofmonth, hour, weekofyear, dayofweek
 
 
 config = configparser.ConfigParser()
@@ -21,24 +24,58 @@ def create_spark_session():
     return spark
 
 
-def process_song_data(spark, input_data, output_data):
-    # get filepath to song data file
-    song_data = 
-    
-    # read song data file
-    df = 
+"""
+Purpose:
+  - Extracts JSON formatted Songs data stored on AWS S3, performs transformations, and loads transformed on S3
+  - Two tables, Songs and Artists are sourced from song metadata files
+  - Tables are loaded back on to S3 in Parquet format, overwrites existing tables
 
-    # extract columns to create songs table
-    songs_table = 
-    
-    # write songs table to parquet files partitioned by year and artist
-    songs_table
+Args:
+  - spark: SparkSession() instance
+  - input_data: Path to Song data Bucket on AWS S3
+  - output_data: Path to AWS S3 Bucket to store data warehouse tables
+  - song_schema: Schema to read JSON formatted Song data files
+"""
+def process_song_data(spark, input_data, output_data, song_schema):    
+    # Reading song data files into Spark DataFrame
+    song_data = os.path.join(input_data, 'song_data/*/*/*/*.json')          # Using wildcard '*' to indicate recursive read 
+    try:
+        df = spark.read.json(song_data, schema=song_schema)
+    except Exception as e:
+        error(f"Error reading Songs data files while processing Songs data: {e}")
+        exit()
 
-    # extract columns to create artists table
-    artists_table = 
+    # Extracting data from song DataFrame to create songs table
+    try:
+        songs_table = df.select('song_id', 'title', 'artist_id', 'year', 'duration')
+    except Exception as e:
+        error(f"Error creating songs_table DataFrame: {e}")
+        exit()
     
-    # write artists table to parquet files
-    artists_table
+    # Writing songs table to AWS S3 in parquet file format, partitioned by year and artist_id
+    song_out_path = os.path.join(output_data, 'sparkify_songs_table/')                              # Output path
+    try:
+        songs_table.write.parquet(song_out_path, mode='overwrite', partitionBy=('year','artist_id'))
+    except Exception as e:
+        error(f"Error writing Songs table to S3: {e}")
+        exit()
+
+    # Extracting data from song DataFrame to create artists table with distinct artist records
+    try:
+        artists_table = df.select('artist_id', 'artist_name', 'artist_location', 'artist_latitude' \
+                                , 'artist_longitude') \
+                          .dropDuplicates()                                                 
+    except Exception as e:
+        error(f"Error creating artists_table DataFrame: {e}")
+        exit()
+    
+    # Writing artists table to AWS S3 in parquet file format
+    artist_out_path = os.path.join(output_data, 'sparkify_artist_table/')                        # output path
+    try:
+        artists_table.write.parquet(artist_out_path, mode='overwrite')
+    except Exception as e:
+        error(f"Error writing Artists table to S3: {e}")
+        exit()
 
 
 def process_log_data(spark, input_data, output_data):
