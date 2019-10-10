@@ -197,15 +197,86 @@ def process_log_data(spark, input_data, output_data, log_schema, song_schema):
         exit()
 
 
+"""
+Purpose:
+  - Instantiate SparkSession() by calling create_spark_session function and stop after processing data
+  - Define song_schema and log_schema schemas for the Songs and Log files to be read
+  - Call process_song_data to extract, transform, and load Songs data into Songs and Artists tables
+  - Call process_log_data to extract, transform, and load Users, Time, and Songplays tables
+"""
 def main():
-    spark = create_spark_session()
-    input_data = "s3a://udacity-dend/"
-    output_data = ""
+    # AWS S3 paths for input and output data storage
+    input_data = "s3a://udacity-dend/"                                          # To source raw data
+    output_data = "s3a://pyspark-s3-etl-udacity-project-4/"                     # To store transformed DWH tables
+
+    # Instantiate SparkSession()
+    try:
+        spark = create_spark_session()
+    except Exception as e:
+        error(f"Error creating SparkSession {e}")
+        exit()
+
+
+    # Songs table schema for JSON read
+    song_schema = Spark_DT.StructType([Spark_DT.StructField('artist_id'        , Spark_DT.StringType())
+                                     , Spark_DT.StructField('artist_latitude'  , Spark_DT.StringType())
+                                     , Spark_DT.StructField('artist_location'  , Spark_DT.StringType())
+                                     , Spark_DT.StructField('artist_longitude' , Spark_DT.StringType())
+                                     , Spark_DT.StructField('artist_name'      , Spark_DT.StringType())
+                                     , Spark_DT.StructField('duration'         , Spark_DT.DoubleType())
+                                     , Spark_DT.StructField('num_songs'        , Spark_DT.IntegerType())
+                                     , Spark_DT.StructField('song_id'          , Spark_DT.StringType())
+                                     , Spark_DT.StructField('title'            , Spark_DT.StringType())
+                                     , Spark_DT.StructField('year'             , Spark_DT.IntegerType())
+                                       ])
     
-    process_song_data(spark, input_data, output_data)    
-    process_log_data(spark, input_data, output_data)
+    # Calling songs data processing function
+    try:
+        process_song_data(spark, input_data, output_data, song_schema)    
+    except Exception as e:
+        error(f"Error processing Songs data: {e}")
+        exit()
 
+    # Log table schema for JSON read
+    log_schema = Spark_DT.StructType([
+                    Spark_DT.StructField('artist'       , Spark_DT.StringType())
+                  , Spark_DT.StructField('auth'         , Spark_DT.StringType())
+                  , Spark_DT.StructField('firstName'    , Spark_DT.StringType())
+                  , Spark_DT.StructField('gender'       , Spark_DT.StringType())
+                  , Spark_DT.StructField('itemInSession', Spark_DT.IntegerType())
+                  , Spark_DT.StructField('lastName'     , Spark_DT.StringType())
+                  , Spark_DT.StructField('length'       , Spark_DT.DoubleType())
+                  , Spark_DT.StructField('level'        , Spark_DT.StringType())
+                  , Spark_DT.StructField('location'     , Spark_DT.StringType())
+                  , Spark_DT.StructField('method'       , Spark_DT.StringType())
+                  , Spark_DT.StructField('page'         , Spark_DT.StringType())
+                  , Spark_DT.StructField('registration' , Spark_DT.DoubleType())
+                  , Spark_DT.StructField('sessionId'    , Spark_DT.IntegerType())
+                  , Spark_DT.StructField('song'         , Spark_DT.StringType())
+                  , Spark_DT.StructField('status'       , Spark_DT.IntegerType())
+                  , Spark_DT.StructField('ts'           , Spark_DT.LongType())
+                  , Spark_DT.StructField('userAgent'    , Spark_DT.StringType())
+                  , Spark_DT.StructField('userId'       , Spark_DT.StringType())
+                                        ])
 
+    # Calling log data processing function
+    try:
+        process_log_data(spark, input_data, output_data, log_schema, song_schema)
+    except Exception as e:
+        error(f"Error processing Log data: {e}")
+        exit()
+    
+    # Stop SparkSession
+    try:
+        spark.stop()
+    except Exception as e:
+        error(f"Error closing SparkSession {e}")
+        exit()
+
+"""
+    Run above code if the file is labled __main__
+      Python internally labels files at runtime to differentiate between imported files and main file
+"""
 if __name__ == "__main__":
     main()
 
