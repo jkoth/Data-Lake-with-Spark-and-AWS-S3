@@ -78,44 +78,123 @@ def process_song_data(spark, input_data, output_data, song_schema):
         exit()
 
 
-def process_log_data(spark, input_data, output_data):
-    # get filepath to log data file
-    log_data =
+"""
+Purpose:
+  - Extracts JSON formatted Log data stored on AWS S3, performs transformations, and loads transformed tables on S3
+  - Two tables, Users and Time are sourced from log data files
+  - Tables are loaded back on to S3 in Parquet format, overwrites existing tables
 
-    # read log data file
-    df = 
+Args:
+  - spark: SparkSession() instance
+  - input_data: Path to Log data Bucket on AWS S3
+  - output_data: Path to AWS S3 Bucket to store data warehouse tables
+  - log_schema: Schema to read JSON formatted Log data files
+"""
+def process_log_data(spark, input_data, output_data, log_schema, song_schema):
+    # Reading log data files into Spark DataFrame
+    log_data = os.path.join(input_data, 'log_data/*/*/*.json')   # Using wildcard '*' to indicate recursive read recursive read
+    try:
+        df = spark.read.json(log_data, schema=log_schema)
+    except Exception as e:
+        error(f"Error reading Log data files: {e}")
+        exit()
     
-    # filter by actions for song plays
-    df = 
+    # Filtering Log DataFrame to only keep records with song plays
+    # 'NextSong' value for 'pages' indicates the song was being played
+    try:
+        df = df.filter(df.page == 'NextSong')
+    except Exception as e:
+        error(f"Error filtering Log DataFrame: {e}")
+        exit()
 
-    # extract columns for users table    
-    artists_table = 
+    # Extracting data from Log DataFrame for users table
+    # To keep only latest user record, using repartition and orderBy on Log DataFrame followed by dropping dups
+    # Sorting descending to keep latest ts row on the top
+    # dropDuplicates keeps first record and drops rest of dups
+    try:
+        users_table = df.repartition(df.userId) \
+                        .select('userId','firstName','lastName','gender','level') \
+                        .orderBy(df.ts.desc()) \
+                        .dropDuplicates(['userId','firstName','lastName','gender'])
+    except Exception as e:
+        error(f"Error creating users_table DataFrame: {e}")
+        exit()
     
-    # write users table to parquet files
-    artists_table
+    # Writing users table to AWS S3 in parquet file format
+    user_out_path = os.path.join(output_data, 'sparkify_user_table/')                    # Output path
+    try:
+        users_table.write.parquet(user_out_path, mode="overwrite")
+    except Exception as e:
+        error(f"Error writing Users table to S3: {e}")
+        exit()
 
-    # create timestamp column from original timestamp column
-    get_timestamp = udf()
-    df = 
+    # Defining User Defined Function (UDF) to convert log timestamp (seconds since epoch) to \
+    # actual Datetime Type timestamp
+    get_timestamp = udf(lambda x: datetime(1970, 1, 1) + timedelta(seconds = x/1000), Spark_DT.TimestampType())
     
-    # create datetime column from original timestamp column
-    get_datetime = udf()
-    df = 
+    # Creating new column 'timestamp' that holds results of get_timestamp udf applied on 'ts' column 
+    try:
+        df = df.withColumn('timestamp', get_timestamp(df.ts))
+    except Exception as e:
+        error(f"Error adding 'timestamp' column to Log DataFrame: {e}")
+        exit()
     
-    # extract columns to create time table
-    time_table = 
+    # Creating time_table DataFrame by extracting date/time details from timestamp and \
+    # storing as multiple table columns
+    try:
+        time_table = df.select('ts' \
+                              , hour('timestamp').alias('hour') \
+                              , dayofmonth('timestamp').alias('day') \
+                              , weekofyear('timestamp').alias('week') \
+                              , month('timestamp').alias('month') \
+                              , year('timestamp').alias('year') \
+                              , dayofweek('timestamp').alias('weekday'))
+    except Exception as e:
+        error(f"Error creating time_table DataFrame: {e}")
+        exit()
     
-    # write time table to parquet files partitioned by year and month
-    time_table
+    # Writing songs table to AWS S3 in parquet file format, partitioned by year and month
+    time_out_path = os.path.join(output_data, 'sparkify_time_table/')                              # output path
+    try:
+        time_table.write.parquet(time_out_path, mode='overwrite', partitionBy=('year','month'))
+    except Exception as e:
+        error(f"time table write error: {e}")
+        exit()
+   
+    # Reading song data files into Spark DataFrame for songplays_table
+    song_data = os.path.join(input_data, 'song_data/*/*/*/*.json')          # Using wildcard '*' to indicate recursive read 
+    try:
+        song_df = spark.read.json(song_data, schema=song_schema)
+    except Exception as e:
+        error(f"Error reading Songs data files while processing Log data: {e}")
+        exit()
 
-    # read in song data to use for songplays table
-    song_df = 
+    # Extracting columns from joined song and log datasets to create songplays table 
+    try:
+        songplays_table = df.join(song_df, [df.song == song_df.title \
+                                           , df.length == song_df.duration \
+                                           , df.artist == song_df.artist_name]) \
+                            .select(df.ts \
+                                  , df.userId \
+                                  , df.level \
+                                  , song_df.song_id \
+                                  , song_df.artist_id \
+                                  , df.sessionId \
+                                  , df.location \
+                                  , df.userAgent \
+                                  , year(df.timestamp).alias('year') \
+                                  , month(df.timestamp).alias('month'))
+    except Exception as e:
+        error(f"Error creating Songplay DataFrame: {e}")
+        exit()
 
-    # extract columns from joined song and log datasets to create songplays table 
-    songplays_table = 
-
-    # write songplays table to parquet files partitioned by year and month
-    songplays_table
+    # Writing Songplays table to AWS S3 in parquet file format, partitioned by year and month
+    songplays_out_path = os.path.join(output_data, 'sparkify_songplays_table/')                     # Output path
+    try:
+        songplays_table.write.parquet(songplays_out_path, mode='overwrite', partitionBy=('year','month'))
+    except Exception as e:
+        error(f"Error writing Songplays table to S3: {e}")
+        exit()
 
 
 def main():
