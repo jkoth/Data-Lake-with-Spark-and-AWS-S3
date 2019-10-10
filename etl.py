@@ -8,14 +8,33 @@ from datetime import datetime, timedelta                # Used for Date & Time r
 # PySpark functions used in below script
 from pyspark.sql.functions import udf, col, year, month, dayofmonth, hour, weekofyear, dayofweek
 
+"""
+  - Retrieve AWS credentials from config file using configparser module
+  - Set AWS credentials' Environment Variables; one of the places AWS services check for credentials 
+"""
+try:
+    config = configparser.ConfigParser()
+    config.read('dl.cfg')
+except Exception as e:
+    error(f"Error reading config file: {e}")
+    exit()
 
-config = configparser.ConfigParser()
-config.read('dl.cfg')
+try:
+    os.environ['AWS_ACCESS_KEY_ID']=config['AWS']['AWS_ACCESS_KEY_ID']
+    os.environ['AWS_SECRET_ACCESS_KEY']=config['AWS']['AWS_SECRET_ACCESS_KEY']
+except Exception as e:
+    error(f"Error setting AWS credential Environment Variables: {e}")
+    exit()
 
-os.environ['AWS_ACCESS_KEY_ID']=config['AWS_ACCESS_KEY_ID']
-os.environ['AWS_SECRET_ACCESS_KEY']=config['AWS_SECRET_ACCESS_KEY']
 
-
+"""
+Purpose:
+  - Function instantiates or finds existing SparkSession() with given properties
+    - Config contains Maven coordinates for jars to be included on the driver and executor classpaths
+      - The coordinates are in following format - groupId:artifactId:version
+      - Listed JAR file provides dependencies for working with Hadoop on AWS Cloud
+  - Returns instantiated SparkSession()
+"""
 def create_spark_session():
     spark = SparkSession \
         .builder \
